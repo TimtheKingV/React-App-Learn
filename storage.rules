@@ -1,0 +1,59 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isValidFile(file) {
+      return file.size < 10 * 1024 * 1024  // 10MB max
+          && (file.contentType.matches('application/pdf') 
+              || file.contentType.matches('text/.*')
+              || file.contentType.matches('image/.*'));
+    }
+
+    // Root level access for MMD files
+    match /{allPaths=**} {
+      allow read: if isAuthenticated() 
+                 && (allPaths.matches('.*\\.mmd$') 
+                     || allPaths.matches('.*\\.pdf$')
+                     || allPaths.matches('.*\\.pdf\\.mmd$'));
+    }
+
+    // User-specific MMD files in root mmd folder
+    match /mmd/{userId}/{fileName} {
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId);
+    }
+
+    // User uploads folder - for PDFs and images
+    match /uploads/{userId}/{allPaths=**} {
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId) && isValidFile(request.resource);
+    }
+
+    // User documents folder - new structure
+    match /users/{userId}/{allPaths=**} {
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId) && isValidFile(request.resource);
+    }
+
+    // Answer images
+    match /answers/{userId}/{exerciseId}/{fileName} {
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId) && request.resource.contentType.matches('image/.*');
+    }
+
+    // Legacy paths support
+    match /uploads/{userId}/mmd/{fileName} {
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId);
+    }
+  }
+}
